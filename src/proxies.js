@@ -1,5 +1,6 @@
 const { List, fromJS } = require('immutable')
 const OpSet = require('./op_set')
+const ProxyPolyfill = require('proxy-polyfill')
 
 function listImmutable(attempt) {
   throw new TypeError('You tried to ' + attempt + ', but this list is read-only. ' +
@@ -111,31 +112,35 @@ const MapHandler = {
     return true
   },
 
-  deleteProperty (target, key) {
-    const { context, objectId } = target
-    if (!context.mutable) {
-      throw new TypeError('You tried to delete the property ' + JSON.stringify(key) +
-                          ', but this object is read-only. Please use Automerge.changeset() ' +
-                          'to get a writable version.')
-    }
-    context.state = context.deleteField(context.state, objectId, key)
-    return true
-  },
+  // delete operator
+  // deleteProperty (target, key) {
+  //   const { context, objectId } = target
+  //   if (!context.mutable) {
+  //     throw new TypeError('You tried to delete the property ' + JSON.stringify(key) +
+  //                         ', but this object is read-only. Please use Automerge.changeset() ' +
+  //                         'to get a writable version.')
+  //   }
+  //   context.state = context.deleteField(context.state, objectId, key)
+  //   return true
+  // },
 
-  has (target, key) {
-    return (key === '_type') || (key === '_state') || (key === '_actorId') || (key === '_conflicts') ||
-      OpSet.getObjectFields(target.context.state.get('opSet'), target.objectId).has(key)
-  },
+  // in operator
+  // has (target, key) {
+  //   return (key === '_type') || (key === '_state') || (key === '_actorId') || (key === '_conflicts') ||
+  //     OpSet.getObjectFields(target.context.state.get('opSet'), target.objectId).has(key)
+  // },
 
-  getOwnPropertyDescriptor (target, key) {
-    if (OpSet.getObjectFields(target.context.state.get('opSet'), target.objectId).has(key)) {
-      return {configurable: true, enumerable: true}
-    }
-  },
+  // Object.getOwnPropertyDescriptor
+  // getOwnPropertyDescriptor (target, key) {
+  //   if (OpSet.getObjectFields(target.context.state.get('opSet'), target.objectId).has(key)) {
+  //     return {configurable: true, enumerable: true}
+  //   }
+  // },
 
-  ownKeys (target) {
-    return OpSet.getObjectFields(target.context.state.get('opSet'), target.objectId).toJS()
-  }
+  // Object.getOwnPropertyNames and Object.getOwnPropertySymbols.
+  // ownKeys (target) {
+  //   return OpSet.getObjectFields(target.context.state.get('opSet'), target.objectId).toJS()
+  // }
 }
 
 const ListHandler = {
@@ -167,50 +172,61 @@ const ListHandler = {
     return true
   },
 
-  deleteProperty (target, key) {
-    const [context, objectId] = target
-    if (!context.mutable) {
-      throw new TypeError('You tried to delete the list index ' + key + ', but this list is ' +
-                          'read-only. Please use Automerge.changeset() to get a writable version.')
-    }
-    context.state = context.deleteField(context.state, objectId, key)
-    return true
-  },
+  // deleteProperty (target, key) {
+  //   const [context, objectId] = target
+  //   if (!context.mutable) {
+  //     throw new TypeError('You tried to delete the list index ' + key + ', but this list is ' +
+  //                         'read-only. Please use Automerge.changeset() to get a writable version.')
+  //   }
+  //   context.state = context.deleteField(context.state, objectId, key)
+  //   return true
+  // },
 
-  has (target, key) {
-    const [context, objectId] = target
-    if (typeof key === 'string' && /^[0-9]+$/.test(key)) {
-      return parseInt(key) < OpSet.listLength(context.state.get('opSet'), objectId)
-    }
-    return (key === 'length') || (key === '_type') || (key === '_objectId') ||
-      (key === '_state') || (key === '_actorId')
-  },
+  // has (target, key) {
+  //   const [context, objectId] = target
+  //   if (typeof key === 'string' && /^[0-9]+$/.test(key)) {
+  //     return parseInt(key) < OpSet.listLength(context.state.get('opSet'), objectId)
+  //   }
+  //   return (key === 'length') || (key === '_type') || (key === '_objectId') ||
+  //     (key === '_state') || (key === '_actorId')
+  // },
 
-  getOwnPropertyDescriptor (target, key) {
-    const [context, objectId] = target
-    if (key === 'length') return {}
-    if (key === '_objectId' || (typeof key === 'string' && /^[0-9]+$/.test(key))) {
-      if (parseInt(key) < OpSet.listLength(context.state.get('opSet'), objectId)) {
-        return {configurable: true, enumerable: true}
-      }
-    }
-  },
+  // getOwnPropertyDescriptor (target, key) {
+  //   const [context, objectId] = target
+  //   if (key === 'length') return {}
+  //   if (key === '_objectId' || (typeof key === 'string' && /^[0-9]+$/.test(key))) {
+  //     if (parseInt(key) < OpSet.listLength(context.state.get('opSet'), objectId)) {
+  //       return {configurable: true, enumerable: true}
+  //     }
+  //   }
+  // },
 
-  ownKeys (target) {
-    const [context, objectId] = target
-    const length = OpSet.listLength(context.state.get('opSet'), objectId)
-    let keys = ['length', '_objectId']
-    for (let i = 0; i < length; i++) keys.push(i.toString())
-    return keys
-  }
+  // ownKeys (target) {
+  //   const [context, objectId] = target
+  //   const length = OpSet.listLength(context.state.get('opSet'), objectId)
+  //   let keys = ['length', '_objectId']
+  //   for (let i = 0; i < length; i++) keys.push(i.toString())
+  //   return keys
+  // }
+}
+
+/* TorP2P Specific 
+   React Native's JS engine doesn't have Proxy, so we have to use proxy-polyfill,
+   but the polyfill is restricted in many ways. We need to introduce the keys we need.
+  */
+function ProxyShim(target, handler) {
+  return new Proxy(Object.assign(target, 
+    {id: null, title: null, created_at: null, last_modified: null, 
+      todos: null, peers: null, listId: null, starred: null, completed_at: null}), 
+      handler);
 }
 
 function mapProxy(context, objectId) {
-  return new Proxy({context, objectId}, MapHandler)
+  return new ProxyShim({context, objectId}, MapHandler)
 }
 
 function listProxy(context, objectId) {
-  return new Proxy([context, objectId], ListHandler)
+  return new ProxyShim([context, objectId], ListHandler)
 }
 
 function instantiateProxy(opSet, objectId) {
@@ -222,6 +238,7 @@ function instantiateProxy(opSet, objectId) {
 
 function rootObjectProxy(context) {
   context.instantiateObject = instantiateProxy
+  alert(JSON.stringify(context));
   return mapProxy(context, '00000000-0000-0000-0000-000000000000')
 }
 
