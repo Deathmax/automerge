@@ -4,7 +4,7 @@ const ProxyPolyfill = require('proxy-polyfill')
 
 function listImmutable(attempt) {
   throw new TypeError('You tried to ' + attempt + ', but this list is read-only. ' +
-                      'Please use Automerge.changeset() to get a writable version.')
+    'Please use Automerge.changeset() to get a writable version.')
 }
 
 function listMethods(context, listId) {
@@ -76,8 +76,8 @@ function listMethods(context, listId) {
 
   // Read-only methods that can delegate to the JavaScript built-in implementations
   for (let method of ['concat', 'every', 'filter', 'find', 'findIndex', 'forEach', 'includes',
-                      'indexOf', 'join', 'lastIndexOf', 'map', 'reduce', 'reduceRight',
-                      'slice', 'some', 'toLocaleString', 'toString']) {
+    'indexOf', 'join', 'lastIndexOf', 'map', 'reduce', 'reduceRight',
+    'slice', 'some', 'toLocaleString', 'toString']) {
     methods[method] = (...args) => {
       const array = [...OpSet.listIterator(context.state.get('opSet'), listId, 'values', context)]
       return array[method].call(array, ...args)
@@ -88,7 +88,7 @@ function listMethods(context, listId) {
 }
 
 const MapHandler = {
-  get (target, key, receiver) {
+  get(target, key, receiver) {
     console.log('mapget', key, target);
     const { context, objectId } = target
     if (!context.state.hasIn(['opSet', 'byObject', objectId])) throw 'Target object does not exist: ' + objectId
@@ -102,13 +102,13 @@ const MapHandler = {
     return OpSet.getObjectField(context.state.get('opSet'), objectId, key, context)
   },
 
-  set (target, key, value, receiver) {
+  set(target, key, value, receiver) {
     console.log('mapset', key, value, target);
     const { context, objectId } = target
     if (!context.mutable) {
       throw new TypeError('You tried to set property ' + JSON.stringify(key) + ' to ' +
-                          JSON.stringify(value) + ', but this object is read-only. ' +
-                          'Please use Automerge.changeset() to get a writable version.')
+        JSON.stringify(value) + ', but this object is read-only. ' +
+        'Please use Automerge.changeset() to get a writable version.')
     }
     context.state = context.setField(context.state, objectId, key, value)
     return true
@@ -116,9 +116,9 @@ const MapHandler = {
 }
 
 const ListHandler = {
-  get (target, key, receiver) {
+  get(target, key, receiver) {
     console.log('listget', key, target);
-    const [context, objectId] = target
+    const {context, objectId} = target
     if (!context.state.hasIn(['opSet', 'byObject', objectId])) throw 'Target object does not exist: ' + objectId
     if (key === Symbol.iterator) return () => OpSet.listIterator(context.state.get('opSet'), objectId, 'values', context)
     if (key === '_inspect') return JSON.parse(JSON.stringify(listProxy(context, objectId)))
@@ -134,13 +134,13 @@ const ListHandler = {
     return listMethods(context, objectId)[key]
   },
 
-  set (target, key, value, receiver) {
+  set(target, key, value, receiver) {
     console.log('listset', key, value, target);
-    const [context, objectId] = target
+    const {context, objectId} = target
     if (!context.mutable) {
       throw new TypeError('You tried to set index ' + key + ' to ' + JSON.stringify(value) +
-                          ', but this list is read-only. Please use Automerge.changeset() ' +
-                          'to get a writable version.')
+        ', but this list is read-only. Please use Automerge.changeset() ' +
+        'to get a writable version.')
     }
     context.state = context.setListIndex(context.state, objectId, key, value)
     return true
@@ -151,27 +151,40 @@ const ListHandler = {
    React Native's JS engine doesn't have Proxy, so we have to use proxy-polyfill,
    but the polyfill is restricted in many ways. We need to introduce the keys we need.
   */
-function ProxyShim(target, handler) {
-  let shimmedTarget = Object.assign(target,
-    {
-      id: '', title: '', created_at: -1, last_modified: -1,
-      todos: [], peers: [], listId: '', starred: false, completed_at: -1,
-      push: function() {}, findIndex: function() {}
-    });
+function ProxyShim(target, handler, array = false) {
+  let shimmedTarget = null;
+  if (array) {
+    const {context, objectId} = target
+    const length = OpSet.listLength(context.state.get('opSet'), objectId)
+    let keys = ['length', '_objectId']
+    for (let i = 0; i < length; i++) keys.push(i.toString())
+      keys.push('push');
+    keys.push('findIndex');
+    keyObj = {};
+    keys.forEach(x => keyObj[x] = '');
+    shimmedTarget = Object.assign(target, keyObj);
+    console.log('shimmed', shimmedTarget);
+  } else {
+    shimmedTarget = Object.assign(target,
+      {
+        id: '', title: '', created_at: -1, last_modified: -1,
+        todos: [], peers: [], listId: '', starred: false, completed_at: -1,
+      });
+  }
   return new Proxy(shimmedTarget, handler);
 }
 
 function mapProxy(context, objectId) {
-  return new ProxyShim({context, objectId}, MapHandler)
+  return new ProxyShim({ context, objectId }, MapHandler)
 }
 
 function listProxy(context, objectId) {
-  return new ProxyShim([context, objectId], ListHandler)
+  return new ProxyShim({context, objectId}, ListHandler, true)
 }
 
 function instantiateProxy(opSet, objectId) {
   switch (opSet.getIn(['byObject', objectId, '_init', 'action'])) {
-    case 'makeMap':  return mapProxy(this, objectId)
+    case 'makeMap': return mapProxy(this, objectId)
     case 'makeList': return listProxy(this, objectId)
   }
 }
