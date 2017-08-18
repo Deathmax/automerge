@@ -88,7 +88,8 @@ function listMethods(context, listId) {
 }
 
 const MapHandler = {
-  get (target, key) {
+  get (target, key, receiver) {
+    console.log('mapget', key, target);
     const { context, objectId } = target
     if (!context.state.hasIn(['opSet', 'byObject', objectId])) throw 'Target object does not exist: ' + objectId
     if (key === '_inspect') return JSON.parse(JSON.stringify(mapProxy(context, objectId)))
@@ -101,7 +102,8 @@ const MapHandler = {
     return OpSet.getObjectField(context.state.get('opSet'), objectId, key, context)
   },
 
-  set (target, key, value) {
+  set (target, key, value, receiver) {
+    console.log('mapset', key, value, target);
     const { context, objectId } = target
     if (!context.mutable) {
       throw new TypeError('You tried to set property ' + JSON.stringify(key) + ' to ' +
@@ -111,40 +113,11 @@ const MapHandler = {
     context.state = context.setField(context.state, objectId, key, value)
     return true
   },
-
-  // delete operator
-  // deleteProperty (target, key) {
-  //   const { context, objectId } = target
-  //   if (!context.mutable) {
-  //     throw new TypeError('You tried to delete the property ' + JSON.stringify(key) +
-  //                         ', but this object is read-only. Please use Automerge.changeset() ' +
-  //                         'to get a writable version.')
-  //   }
-  //   context.state = context.deleteField(context.state, objectId, key)
-  //   return true
-  // },
-
-  // in operator
-  // has (target, key) {
-  //   return (key === '_type') || (key === '_state') || (key === '_actorId') || (key === '_conflicts') ||
-  //     OpSet.getObjectFields(target.context.state.get('opSet'), target.objectId).has(key)
-  // },
-
-  // Object.getOwnPropertyDescriptor
-  // getOwnPropertyDescriptor (target, key) {
-  //   if (OpSet.getObjectFields(target.context.state.get('opSet'), target.objectId).has(key)) {
-  //     return {configurable: true, enumerable: true}
-  //   }
-  // },
-
-  // Object.getOwnPropertyNames and Object.getOwnPropertySymbols.
-  // ownKeys (target) {
-  //   return OpSet.getObjectFields(target.context.state.get('opSet'), target.objectId).toJS()
-  // }
 }
 
 const ListHandler = {
-  get (target, key) {
+  get (target, key, receiver) {
+    console.log('listget', key, target);
     const [context, objectId] = target
     if (!context.state.hasIn(['opSet', 'byObject', objectId])) throw 'Target object does not exist: ' + objectId
     if (key === Symbol.iterator) return () => OpSet.listIterator(context.state.get('opSet'), objectId, 'values', context)
@@ -161,7 +134,8 @@ const ListHandler = {
     return listMethods(context, objectId)[key]
   },
 
-  set (target, key, value) {
+  set (target, key, value, receiver) {
+    console.log('listset', key, value, target);
     const [context, objectId] = target
     if (!context.mutable) {
       throw new TypeError('You tried to set index ' + key + ' to ' + JSON.stringify(value) +
@@ -171,43 +145,6 @@ const ListHandler = {
     context.state = context.setListIndex(context.state, objectId, key, value)
     return true
   },
-
-  // deleteProperty (target, key) {
-  //   const [context, objectId] = target
-  //   if (!context.mutable) {
-  //     throw new TypeError('You tried to delete the list index ' + key + ', but this list is ' +
-  //                         'read-only. Please use Automerge.changeset() to get a writable version.')
-  //   }
-  //   context.state = context.deleteField(context.state, objectId, key)
-  //   return true
-  // },
-
-  // has (target, key) {
-  //   const [context, objectId] = target
-  //   if (typeof key === 'string' && /^[0-9]+$/.test(key)) {
-  //     return parseInt(key) < OpSet.listLength(context.state.get('opSet'), objectId)
-  //   }
-  //   return (key === 'length') || (key === '_type') || (key === '_objectId') ||
-  //     (key === '_state') || (key === '_actorId')
-  // },
-
-  // getOwnPropertyDescriptor (target, key) {
-  //   const [context, objectId] = target
-  //   if (key === 'length') return {}
-  //   if (key === '_objectId' || (typeof key === 'string' && /^[0-9]+$/.test(key))) {
-  //     if (parseInt(key) < OpSet.listLength(context.state.get('opSet'), objectId)) {
-  //       return {configurable: true, enumerable: true}
-  //     }
-  //   }
-  // },
-
-  // ownKeys (target) {
-  //   const [context, objectId] = target
-  //   const length = OpSet.listLength(context.state.get('opSet'), objectId)
-  //   let keys = ['length', '_objectId']
-  //   for (let i = 0; i < length; i++) keys.push(i.toString())
-  //   return keys
-  // }
 }
 
 /* TorP2P Specific 
@@ -215,10 +152,13 @@ const ListHandler = {
    but the polyfill is restricted in many ways. We need to introduce the keys we need.
   */
 function ProxyShim(target, handler) {
-  return new Proxy(Object.assign(target, 
-    {id: null, title: null, created_at: null, last_modified: null, 
-      todos: null, peers: null, listId: null, starred: null, completed_at: null}), 
-      handler);
+  let shimmedTarget = Object.assign(target,
+    {
+      id: '', title: '', created_at: -1, last_modified: -1,
+      todos: [], peers: [], listId: '', starred: false, completed_at: -1,
+      push: function() {}, findIndex: function() {}
+    });
+  return new Proxy(shimmedTarget, handler);
 }
 
 function mapProxy(context, objectId) {
@@ -238,7 +178,6 @@ function instantiateProxy(opSet, objectId) {
 
 function rootObjectProxy(context) {
   context.instantiateObject = instantiateProxy
-  alert(JSON.stringify(context));
   return mapProxy(context, '00000000-0000-0000-0000-000000000000')
 }
 
